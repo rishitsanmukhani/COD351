@@ -22,7 +22,7 @@ public class HbaseManager {
 	Connection conn;
 	Admin admin ;
 	
-	public static final String DEFAULT_USER_NAMe = "hduser";
+	public static final String DEFAULT_USER_NAMe = "rishit";
 	
 	public HTableDescriptor bucketsTable;
 	public HTableDescriptor smallFilesDeleteTable;

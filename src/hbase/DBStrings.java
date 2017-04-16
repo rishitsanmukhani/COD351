@@ -5,7 +5,7 @@ public final class DBStrings {
 		
 	}
 	
-	public static final String USER_NAME = "baadalvm";
+	public static final String USER_NAME = "rishit";
 	
 	public final static String DEFAULT_COLUMN_FAMILY = "DEFAULT_CF";
 	public final static char DELIMITER = ',';

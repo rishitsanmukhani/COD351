@@ -26,7 +26,7 @@ public class HbaseManager2 {
 	Connection conn;
 	Admin admin ;
 	
-	public static final String DEFAULT_USER_NAME = "hduser";
+	public static final String DEFAULT_USER_NAME = "rishit";
 	
 	public HTableDescriptor dataTable;
 	public HTableDescriptor internalsTable;

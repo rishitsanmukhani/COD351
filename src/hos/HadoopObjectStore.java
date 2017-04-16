@@ -1,7 +1,10 @@
 package hos;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -87,7 +90,6 @@ public class HadoopObjectStore implements ObjectProtocol {
 	@Override
 	public String PutBucket(UserId userID, BucketInfo bucketID) {
 		message = "";
-		
 		if (bucketID.bucketName.contains(",")){
 			message = "Keys cannot contain ',' ";
 			return message;
@@ -95,7 +97,7 @@ public class HadoopObjectStore implements ObjectProtocol {
 		
 		folderAlreadyExists = false;
 		boolean success = createBucketInFolder(bucketID.bucketName);
-	  	if (success){
+		if (success){
 	  		addEntriesToUserBuckets(bucketID);
 	  		message = "Create Bucket is Successful";
 
@@ -430,21 +432,54 @@ public class HadoopObjectStore implements ObjectProtocol {
 	  	}
 	}
 
+	public void errorlog(String content)
+	{
+		try {
+			File file = new File("webapps/log.txt");
+			content += "\n";
+			// if file doesnt exists, then create it
+			if (!file.exists()) {
+				file.createNewFile();
+			}
+
+			FileWriter fw = new FileWriter(file.getAbsoluteFile(),true);
+			BufferedWriter bw = new BufferedWriter(fw);
+			bw.write(content);
+			bw.close();
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 	public boolean createBucketInFolder(String bucketKey){
 		  folderAlreadyExists = false;
+		  errorlog("hi!");
 		  FileSystem fs = util.getFileSystem();
+		  errorlog("hi!");
+		  errorlog("/user/" + DBStrings.USER_NAME + "/" + bucketKey);
 		  Path newPath = new Path("/user/" + DBStrings.USER_NAME + "/" + bucketKey);
+		  errorlog("hi! end");
+
 		  try {
+			  errorlog("hi!- start");
+
 			if (fs.exists(newPath)){
+				  errorlog("hi!-path initial");
 				  folderAlreadyExists = true; 
 				  return false;
 			}
 			else{
+				  errorlog("hi!-mk initial");
+
 				fs.mkdirs(newPath);
+				  errorlog("hi!-mk final");
+
 				return true;
 			}
 		} catch (Exception e) {
-//			message += Exception
+			  errorlog("hi - exception");
+
+			//			message += Exception
 			e.printStackTrace();
 		}
 		  return false;

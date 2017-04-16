@@ -12,7 +12,7 @@ import hos.ObjectInfoMetaData;
 
 public class RestUtil {
 
-	public static final String USER_NAME = "hduser";
+	public static final String USER_NAME = "rishit";
 	
 	public static String getPathFromParams(String bucketKey, String objectKey){;
 		return "/user/" + DBStrings.USER_NAME + "/" + bucketKey + "/" + objectKey;				

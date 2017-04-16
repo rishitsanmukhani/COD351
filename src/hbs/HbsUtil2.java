@@ -40,7 +40,7 @@ public class HbsUtil2 {
 	
 	public static Configuration getConfiguration(){
 		Configuration config = new Configuration();
-//		System.setProperty("HADOOP_USER_NAME", "hduser");
+		System.setProperty("HADOOP_USER_NAME", "rishit");
 		config.set("fs.defaultFS", FSNAME);
 		config.setInt("dfs.replication", 2);
 		return config;
