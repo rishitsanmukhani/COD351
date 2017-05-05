@@ -25,6 +25,7 @@ typedef struct dir_entry
 
 void hos_init();
 void hos_set_credentials(char *username, char *server);
+int hos_set_logfile(char *fname);
 int hos_object_read_fp(const char *path, FILE *fp);
 int hos_object_write_fp(const char *path, FILE *fp);
 int hos_list_directory(const char *path, dir_entry **);

@@ -179,8 +179,10 @@ static dir_entry *path_info(const char *path)
   dir_entry *tmp;
   if (!caching_list_directory(dir, &tmp))
     return NULL;
+  fprintf(stderr, "found dir entry!!\n");
   for (; tmp; tmp = tmp->next)
   {
+    fprintf(stderr, "entry: %s\n",tmp->full_name);
     if (!strcmp(tmp->full_name, path))
       return tmp;
   }
@@ -428,10 +430,12 @@ static struct options {
     char username[OPTION_SIZE];
     char cache_timeout[OPTION_SIZE];
     char server[OPTION_SIZE];
+    char logfile[OPTION_SIZE];
 } options = {
     .username = "",
     .cache_timeout = "600",
-    .server = "http://127.0.0.1:8080/"
+    .server = "http://127.0.0.1:8080/",
+    .logfile = "./hosfuse.log"
 };
 
 int parse_option(void *data, const char *arg, int key, struct fuse_args *outargs)
@@ -475,6 +479,9 @@ int main(int argc, char **argv)
 
     return 1;
   }
+
+  // if(!hos_set_logfile(options.logfile))
+  //   return 1;
 
   hos_init();
 

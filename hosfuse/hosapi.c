@@ -20,7 +20,7 @@
 
 static CURL *curl_pool[1024];
 static int curl_pool_count = 0;
-static int debug = 0;
+static int debug = 1;
 static pthread_mutex_t pool_mut;
 
 static CURL *get_connection()
@@ -43,32 +43,79 @@ static void return_connection(CURL *curl)
   pthread_mutex_unlock(&pool_mut);
 }
 
+static struct {
+  char username[MAX_HEADER_SIZE], server[MAX_URL_SIZE];
+} reconnect_args;
+
+
+void hos_debug(int dbg)
+{
+  debug = dbg;
+}
+
+void hos_set_credentials(char *username, char *server)
+{
+  strncpy(reconnect_args.username, username, sizeof(reconnect_args.username));
+  strncpy(reconnect_args.server, server, sizeof(reconnect_args.server));
+}
+
+static FILE *logfile;
+
+int hos_set_logfile(char *filename)
+{
+  logfile = fopen(filename, "a");
+  if(!logfile){
+    fprintf(stderr, "Unable to open log file: %s\n", filename);
+    return 0;
+  }
+  fprintf(stderr, "Set log file: %s\n", filename);
+  return 1;
+}
+
+void debugf(char *fmt, ...)
+{
+  if (debug)
+  {
+    va_list args;
+    va_start(args, fmt);
+    fputs("!!! ", stderr);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    putc('\n', stderr);
+  }
+}
+
 size_t body_to_string(void *ptr, size_t sz, size_t nmemb, void *body){
   size_t prev_len = strlen(body);
   size_t new_len = prev_len + sz*nmemb;
-  if(new_len >= MAX_BODY_SIZE)
-    new_len = MAX_BODY_SIZE;
+  if(new_len >= MAX_BODY_SIZE-1)
+    new_len = MAX_BODY_SIZE-1;
   memcpy(body + prev_len, ptr, new_len - prev_len);
   ((char*)body)[new_len] = 0; //null terminate
   return  sz*nmemb;
 }
 
-static int send_request(char *method, const char *path, char *body, FILE *up_fp, FILE *down_fp)
+static int send_request(char *method, const char *path, char *body, FILE *up_fp, FILE *down_fp, char *headers)
 {
   char url[MAX_URL_SIZE];
   char *slash;
   long response = -1;
   int tries = 0;
 
-  char *encoded = curl_escape(path, 0);
-  while ((slash = strstr(encoded, "%2F")) || (slash = strstr(encoded, "%2f")))
-  {
-    *slash = '/';
-    memmove(slash+1, slash+3, strlen(slash+3)+1);
-  }
+  // char *encoded = curl_escape(path, 0);
+  // while ((slash = strstr(encoded, "%2F")))
+  // {
+  //   *slash = '/';
+  //   memmove(slash+1, slash+3, strlen(slash+3)+1);
+  // }
+  // while ((slash = strstr(encoded, "%2F")))
+  // {
+  //   *slash = '/';
+  //   memmove(slash+1, slash+3, strlen(slash+3)+1);
+  // }
   strncpy(url, reconnect_args.server, MAX_URL_SIZE);
-  strncat(url, encoded, MAX_URL_SIZE);
-  curl_free(encoded);
+  strncat(url, path, MAX_URL_SIZE);
+  // curl_free(encoded);
 
   // retry on failures
   for (tries = 0; tries < REQUEST_RETRIES; tries++)
@@ -78,6 +125,8 @@ static int send_request(char *method, const char *path, char *body, FILE *up_fp,
     curl_easy_setopt(curl, CURLOPT_HEADER, 0);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
+    curl_easy_setopt(curl, CURLOPT_PROXY, NULL);
+    curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 0);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "interwebz_dogeplorer/pro 6.9");
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10);
     curl_easy_setopt(curl, CURLOPT_VERBOSE, debug);
@@ -101,8 +150,15 @@ static int send_request(char *method, const char *path, char *body, FILE *up_fp,
     }else if(body){
       // MAX_BODY_SIZE
       body[0] = 0;
-       curl_easy_setopt(curl, CURLOPT_WRITEDATA, body);
-       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, body_to_string);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, body);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, body_to_string);
+    }else{
+      curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
+    }
+    if(headers){
+      headers[0] = 0;
+      curl_easy_setopt(curl, CURLOPT_HEADERDATA, headers);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, body_to_string);
     }
 
     curl_easy_perform(curl);
@@ -120,7 +176,7 @@ void split_path(const char *path, char *bucket, char *object){
   char *c=path;
   if(*c == '/')
     c++;
-  while(*c != '/' || *c != 0){
+  while(*c != '/' && *c != 0){
     *bucket = *c;
     c++; bucket++;
   }
@@ -151,10 +207,14 @@ int hos_object_read_fp(const char *path, FILE *fp)
   split_path(path, bucket, object);
   if(bucket[0] == 0 || object[0] == 0)
     return 0;
-  snprintf(url, MAX_URL_SIZE, "/putObject?bucketKey=%s&objectKey=%s", bucket, object);
+  char *escaped_bucket = curl_escape(bucket, 0);
+  char *escaped_object = curl_escape(object, 0);
+  snprintf(url, MAX_URL_SIZE, "/putObject?bucketKey=%s&objectKey=%s", escaped_bucket, escaped_object);
+  curl_free(escaped_bucket);
+  curl_free(escaped_object);
   fflush(fp);
   rewind(fp);
-  int response = send_request("PUT", url, NULL, fp, NULL);
+  int response = send_request("PUT", url, NULL, fp, NULL, NULL);
   return (response >= 200 && response < 300);
 }
 
@@ -164,8 +224,12 @@ int hos_object_write_fp(const char *path, FILE *fp)
   split_path(path, bucket, object);
   if(bucket[0] == 0 || object[0] == 0)
     return 0;
-  snprintf(url, MAX_URL_SIZE, "/getObject?bucketKey=%s&objectKey=%s", bucket, object);
-  int response = send_request("GET", url, NULL, NULL, fp);
+  char *escaped_bucket = curl_escape(bucket, 0);
+  char *escaped_object = curl_escape(object, 0);
+  snprintf(url, MAX_URL_SIZE, "/getObject?bucketKey=%s&objectKey=%s", escaped_bucket, escaped_object);
+  curl_free(escaped_bucket);
+  curl_free(escaped_object);
+  int response = send_request("GET", url, NULL, NULL, fp, NULL);
   fflush(fp);
   if ((response >= 200 && response < 300) || ftruncate(fileno(fp), 0))
     return 1;
@@ -191,26 +255,33 @@ int hos_object_truncate(const char *path, off_t size)
 
 int hos_list_directory(const char *path, dir_entry **dir_list)
 {
+  debugf("listing: %s\n", path);
+
   char bucket[MAX_PATH_SIZE], object[MAX_PATH_SIZE];
-  char body[MAX_BODY_SIZE], url[MAX_URL_SIZE];
+  char body[MAX_BODY_SIZE], headers[MAX_BODY_SIZE], url[MAX_URL_SIZE];
   int prefix_length = 0;
   int response = 0;
   int retval = 0;
   int entry_count = 0;
   int list_buckets = 0;
   *dir_list = NULL;
+
   split_path(path, bucket, object);
+
   if(bucket[0] == 0){
     snprintf(url, MAX_URL_SIZE, "/listBuckets");
     list_buckets = 1;
   }else if(object[0] == 0){
-    snprintf(url, MAX_URL_SIZE, "/listObjects?bucketKey=%s", bucket);
+    char *escaped_bucket = curl_escape(bucket, 0);
+    snprintf(url, MAX_URL_SIZE, "/listObjects?bucketKey=%s", escaped_bucket);
+    curl_free(escaped_bucket);
   }else{
     // object
     snprintf(body, MAX_BODY_SIZE, "{\"objectList\":[{\"1\":\"%s\"}]}", object);
+    response = 200;
   }
-
-  response = send_request("GET", url, body, NULL, NULL);
+  if(response != 200)
+    response = send_request("GET", url, body, NULL, NULL, NULL);
   if(response < 200 || response >= 400)
     return 0;
   char *json_stream = 0;
@@ -223,27 +294,42 @@ int hos_list_directory(const char *path, dir_entry **dir_list)
   if(*json_stream==']') // no objects in this bucket
     return 1;
 
-  json_stream++; //skip {
   char entry_name[MAX_PATH_SIZE], entry_index[MAX_PATH_SIZE];
+
   while(1){
-    sscanf(json_stream, "\"%s\":\"%s\"%n", entry_index, entry_name, &bytes_read);
+    debugf(json_stream);
+    if(2 != sscanf(json_stream, "{\"%[^\"]\":\"%[^\"]\"}%n", entry_index, entry_name, &bytes_read)){
+      break;
+    }
+    json_stream += bytes_read;
     if(*json_stream == ',')
       json_stream++;
     entry_count++;
 
+    // if(!list_buckets)
+    // {
+    //   snprintf(url, MAX_URL_SIZE, "/getObject?bucketKey=%s&objectKey=%s", bucket, entry_name);
+    //   response = send_request("GET", url, NULL, NULL, NULL, headers);
+    //   debugf("HEAD resp: %d %s\n", response, headers);
+    // }
+    // if(response >= 200 && response < 300){
+      // fde
+    // }
+
     dir_entry *de = (dir_entry *)malloc(sizeof(dir_entry));
-    de->next = NULL;
+    de->next = *dir_list;
+    *dir_list = de;
     de->size = 0;
     de->last_modified = time(NULL);
     de->name = strdup(entry_name);
     if(list_buckets){
       de->content_type = strdup("application/directory");
       de->isdir = 1;
-      asprintf(&(de->full_name), "%s", entry_name);
+      asprintf(&(de->full_name), "/%s", entry_name);
     }else{
       de->isdir = 0;
       de->content_type = strdup("application/data");
-      asprintf(&(de->full_name), "%s/%s", bucket, entry_name);
+      asprintf(&(de->full_name), "/%s/%s", bucket, entry_name);
     }
   }
 
@@ -269,16 +355,22 @@ int hos_delete_object(const char *path)
 {
   char url[MAX_URL_SIZE], bucket[MAX_PATH_SIZE], object[MAX_PATH_SIZE];
   split_path(path, bucket, object);
+  char *escaped_bucket = curl_escape(bucket, 0);
+  char *escaped_object = curl_escape(object, 0);
+
   int response;
-  if(bucket[0] != 0 || object[0] == 0){
-    snprintf(url, MAX_URL_SIZE, "/deleteBucket?bucketKey=%s", bucket);
-    response = send_request("DELETE", url, NULL, NULL, NULL);
+  if(bucket[0] != 0 && object[0] == 0){
+    snprintf(url, MAX_URL_SIZE, "/deleteBucket?bucketKey=%s", escaped_bucket);
+    response = send_request("DELETE", url, NULL, NULL, NULL, NULL);
+  }else if(bucket[0] != 0 && object[0] != 0){
+    snprintf(url, MAX_URL_SIZE, "/deleteObject?bucketKey=%s&objectKey=%s", escaped_bucket, escaped_object);
+    response = send_request("GET", url, NULL, NULL, NULL, NULL);
   }else{
-    if(bucket[0] == 0 || object[0] == 0)
-      return 0;
-    snprintf(url, MAX_URL_SIZE, "/deleteObject?bucketKey=%s&objectKey=%s", bucket, object);
-    response = send_request("GET", url, NULL, NULL, NULL);
+    response = 401;
   }
+  curl_free(escaped_bucket);
+  curl_free(escaped_object);
+
   return (response >= 200 && response < 300);
 }
 
@@ -286,6 +378,9 @@ int hos_copy_object(const char *src, const char *dst)
 {
   // int response = send_request("PUT", dst_encoded, NULL, NULL, headers);
   // return (response >= 200 && response < 300);
+  // FILE *fs,*ft;
+  // hos_object_read_fp(dst, ft);
+  // hos_object_write_fp(src, fs);
   return 0;
 }
 
@@ -295,8 +390,10 @@ int hos_create_directory(const char *path)
   split_path(path, bucket, object);
   if(bucket[0] == 0 || object[0] != 0)
     return 0;
-  snprintf(url, MAX_URL_SIZE, "/createBucket?bucketKey=%s", bucket);
-  int response = send_request("PUT", url, NULL, NULL, NULL);
+  char *escaped_bucket = curl_escape(bucket, 0);
+  snprintf(url, MAX_URL_SIZE, "/createBucket?bucketKey=%s", escaped_bucket);
+  curl_free(escaped_bucket);
+  int response = send_request("PUT", url, NULL, NULL, NULL, NULL);
   return (response >= 200 && response < 300);
 }
 
@@ -306,33 +403,3 @@ off_t hos_file_size(int fd)
   fstat(fd, &buf);
   return buf.st_size;
 }
-
-void hos_debug(int dbg)
-{
-  debug = dbg;
-}
-
-
-static struct {
-  char username[MAX_HEADER_SIZE], server[MAX_URL_SIZE];
-} reconnect_args;
-
-void hos_set_credentials(char *username, char *server)
-{
-  strncpy(reconnect_args.username, username, sizeof(reconnect_args.username));
-  strncpy(reconnect_args.server, server, sizeof(reconnect_args.server));
-}
-
-void debugf(char *fmt, ...)
-{
-  if (debug)
-  {
-    va_list args;
-    va_start(args, fmt);
-    fputs("!!! ", stderr);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    putc('\n', stderr);
-  }
-}
-
