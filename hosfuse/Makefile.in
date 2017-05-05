@@ -1,0 +1,54 @@
+.SUFFIXES:
+.SUFFIXES: .c .o
+
+CC = @CC@
+CFLAGS = -Wall @CFLAGS@ @XML_CFLAGS@ @CURL_CFLAGS@ @FUSE_CFLAGS@ @OPENSSL_CFLAGS@ @JSONC_CFLAGS@
+LDFLAGS = @LDFLAGS@
+LIBS = @LIBS@ @XML_LIBS@ @CURL_LIBS@ @FUSE_LIBS@ @OPENSSL_LIBS@ @JSONC_LIBS@
+INSTALL = @INSTALL@
+MKDIR_P = @MKDIR_P@
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+bindir = $(DESTDIR)$(exec_prefix)/bin
+
+SOURCES=hosapi.c cloudfuse.c
+HEADERS=hosapi.h
+
+all: cloudfuse
+
+install: all $(bindir)
+	$(INSTALL) cloudfuse $(bindir)/cloudfuse
+
+uninstall:
+	/bin/rm -f $(bindir)/cloudfuse
+
+$(bindir):
+	$(MKDIR_P) $(bindir)
+
+cloudfuse: $(SOURCES) $(HEADERS)
+	$(CC) $(CFLAGS) -o cloudfuse $(SOURCES) $(LIBS)
+
+clean:
+	/bin/rm -f cloudfuse
+
+distclean: clean
+	/bin/rm -f Makefile config.h config.status config.cache config.log \
+		marklib.dvi
+
+mostlyclean: clean
+
+maintainer-clean: clean
+
+config.h.in: stamp-h.in
+stamp-h.in: configure.in
+	autoheader
+	echo timestamp > stamp-h.in
+
+config.h: stamp-h
+stamp-h: config.h.in config.status
+	./config.status
+Makefile: Makefile.in config.status
+	./config.status
+config.status: configure
+	./config.status --recheck
+
