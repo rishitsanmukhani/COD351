@@ -1,7 +1,7 @@
-# COD351
-Software Designed Storage
+# COD351 - Software Defined Storage
+Mounts remote object store to a local mount point using libfuse.
 
-## JSON Responses
+## JSON interface of the object store 
 
 1. Create Bucket - PUT
 * http://localhost:8080/createBucket?bucketKey=b11
